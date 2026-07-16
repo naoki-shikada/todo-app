@@ -1,5 +1,7 @@
 # TODOアプリ
 
+<!-- GitHub Actions動作確認用のテスト編集 -->
+
 Node.js + Express のバックエンドと、素のHTML/CSS/JavaScriptのフロントエンドで構成されたシンプルなTODOアプリです。データはPostgreSQLに永続化されます。
 
 ## ファイル構成
