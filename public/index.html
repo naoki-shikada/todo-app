@@ -99,7 +99,7 @@
     });
   }
 
-  // 新しいTODOを追加する
+  // 新しいTODOを追加する（新しく設定したい値=titleがあるのでbodyが必要）
   async function addTodo(title) {
     await fetch('/todos', {
       method: 'POST',
@@ -109,7 +109,7 @@
     await fetchTodos();
   }
 
-  // 完了/未完了を切り替える
+  // 完了/未完了を切り替える（新しく設定したい値=completedがあるのでbodyが必要）
   async function toggleCompleted(id, completed) {
     await fetch(`/todos/${id}`, {
       method: 'PATCH',
@@ -119,7 +119,7 @@
     await fetchTodos();
   }
 
-  // TODOを削除する
+  // TODOを削除する（新しく設定したい値が無いのでbodyは不要。対象はURLのidだけで指定できる）
   async function deleteTodo(id) {
     await fetch(`/todos/${id}`, { method: 'DELETE' });
     await fetchTodos();

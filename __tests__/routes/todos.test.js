@@ -1,8 +1,13 @@
 // src/routes/todos.js に対するユニットテスト
 // supertestでExpressルートに直接リクエストを送って検証する
 //
+// 各テストは Arrange（準備）→ Act（実行）→ Assert（検証）の順で書く。
+// JSは上から順に処理されるため、この順番を崩すと「resが未定義」等のエラーや、
+// モック未設定のまま実行して期待と違う結果になる、といった問題が起きる
+//
 // src/db/pool.js（実DBへの接続）はjest.mockでモックし、
 // pool.query の戻り値を各テストで制御することでDB無しでロジックを検証する
+// require('../db/pool')の戻り値を、本物のPoolではなく{ query: jest.fn() }に置き換えている
 jest.mock('../../src/db/pool', () => ({ query: jest.fn() }));
 
 const express = require('express');

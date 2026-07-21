@@ -1,6 +1,6 @@
 // Jestの設定ファイル
 module.exports = {
-  // カバレッジ計測を有効にする
+  // カバレッジ計測を有効にする（100%は「実行された行数の割合」であり、検証内容の正しさまでは保証しない）
   collectCoverage: true,
   // カバレッジレポートの出力形式（lcov: HTML/CI連携用、text: コンソール表示用）
   coverageReporters: ['lcov', 'text'],
