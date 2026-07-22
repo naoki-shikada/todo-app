@@ -25,6 +25,13 @@
     padding: 8px 16px;
     cursor: pointer;
   }
+  #search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
   #todo-list {
     list-style: none;
     padding: 0;
@@ -54,6 +61,9 @@
 
 <h1>TODOアプリ</h1>
 
+<!-- TODO検索 -->
+<input type="text" id="search-input" placeholder="検索（あいまい一致）">
+
 <!-- TODO追加フォーム -->
 <form id="todo-form">
   <input type="text" id="todo-title" placeholder="やることを入力" required>
@@ -67,10 +77,13 @@
   const form = document.getElementById('todo-form');
   const titleInput = document.getElementById('todo-title');
   const list = document.getElementById('todo-list');
+  const searchInput = document.getElementById('search-input');
 
-  // サーバーからTODO一覧を取得して画面に描画する
+  // サーバーからTODO一覧を取得して画面に描画する（検索欄に入力があれば絞り込む）
   async function fetchTodos() {
-    const res = await fetch('/todos');
+    const search = searchInput.value.trim();
+    const query = search ? `?search=${encodeURIComponent(search)}` : '';
+    const res = await fetch(`/todos${query}`);
     const todos = await res.json();
     renderTodos(todos);
   }
@@ -131,6 +144,11 @@
     if (!title) return;
     addTodo(title);
     titleInput.value = '';
+  });
+
+  // 入力するたびに検索を実行する（1文字入力した時点で絞り込みが反映される）
+  searchInput.addEventListener('input', () => {
+    fetchTodos();
   });
 
   fetchTodos();

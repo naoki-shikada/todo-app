@@ -41,7 +41,9 @@ describe('GET /todos', () => {
     // Assert（検証）
     expect(res.status).toBe(200);
     expect(res.body).toEqual(rows);
-    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining('SELECT'));
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain('SELECT');
+    expect(params).toEqual([]);
   });
 
   test('正常系：?completed=true を指定すると完了済みのみで絞り込まれる', async () => {
@@ -105,6 +107,96 @@ describe('GET /todos', () => {
     // Assert（検証）
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: 'サーバーエラーが発生しました' });
+  });
+
+  test('正常系：?search=キーワード を指定すると、titleに部分一致するものだけ絞り込まれる', async () => {
+    // Arrange（準備）
+    const app = createApp();
+    const rows = [
+      { id: 1, title: '牛乳を買う', completed: false, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' },
+    ];
+    pool.query.mockResolvedValueOnce({ rows, rowCount: 1 });
+
+    // Act（実行）
+    const res = await request(app).get('/todos').query({ search: '牛乳' });
+
+    // Assert（検証）
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(rows);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain('title ILIKE $1');
+    expect(params).toEqual(['%牛乳%']);
+  });
+
+  test('エッジケース：searchが1文字でも部分一致すればヒットする', async () => {
+    // Arrange（準備）
+    const app = createApp();
+    const rows = [
+      { id: 1, title: '牛乳を買う', completed: false, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' },
+    ];
+    pool.query.mockResolvedValueOnce({ rows, rowCount: 1 });
+
+    // Act（実行）
+    const res = await request(app).get('/todos').query({ search: '牛' });
+
+    // Assert（検証）
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(rows);
+    const [, params] = pool.query.mock.calls[0];
+    expect(params).toEqual(['%牛%']);
+  });
+
+  test('正常系：completedとsearchを同時に指定すると両方の条件で絞り込まれる', async () => {
+    // Arrange（準備）
+    const app = createApp();
+    const rows = [
+      { id: 2, title: 'レポートを書く', completed: true, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' },
+    ];
+    pool.query.mockResolvedValueOnce({ rows, rowCount: 1 });
+
+    // Act（実行）
+    const res = await request(app).get('/todos').query({ completed: 'true', search: 'レポート' });
+
+    // Assert（検証）
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(rows);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain('completed = $1');
+    expect(sql).toContain('title ILIKE $2');
+    expect(sql).toContain('AND');
+    expect(params).toEqual([true, '%レポート%']);
+  });
+
+  test('エッジケース：searchが空文字の場合は絞り込みなしの全件取得と同じになる', async () => {
+    // Arrange（準備）
+    const app = createApp();
+    const rows = [
+      { id: 1, title: '牛乳を買う', completed: false, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' },
+    ];
+    pool.query.mockResolvedValueOnce({ rows, rowCount: 1 });
+
+    // Act（実行）
+    const res = await request(app).get('/todos').query({ search: '' });
+
+    // Assert（検証）
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(rows);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).not.toContain('ILIKE');
+    expect(params).toEqual([]);
+  });
+
+  test('正常系：searchに該当するTODOが無い場合は空配列が返る', async () => {
+    // Arrange（準備）
+    const app = createApp();
+    pool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    // Act（実行）
+    const res = await request(app).get('/todos').query({ search: '存在しない単語' });
+
+    // Assert（検証）
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
   });
 });
 

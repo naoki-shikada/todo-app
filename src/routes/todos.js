@@ -26,28 +26,36 @@ function parseId(rawId) {
   return Number(rawId);
 }
 
-// TODO一覧を取得（?completed=true|false で絞り込み可能）
+// TODO一覧を取得（?completed=true|false で絞り込み、?search=キーワード であいまい検索が可能。組み合わせ可）
 router.get('/', async (req, res) => {
-  // 1. クエリパラメータからcompletedを受け取る
-  const { completed } = req.query;
+  // 1. クエリパラメータからcompletedとsearchを受け取る
+  const { completed, search } = req.query;
+
+  if (completed !== undefined && completed !== 'true' && completed !== 'false') {
+    return res.status(400).json({ error: 'completed は true または false で指定してください' });
+  }
+
+  // 2. 指定された条件だけをWHERE句に組み立てる（パラメータ化クエリでSQLインジェクションを防ぐ）
+  const whereClauses = [];
+  const values = [];
+  let paramIndex = 1;
+
+  if (completed !== undefined) {
+    whereClauses.push(`completed = $${paramIndex++}`);
+    values.push(completed === 'true');
+  }
+  if (search !== undefined && search.trim() !== '') {
+    // titleに検索語が1文字でも含まれていればヒットするあいまい検索（ILIKEは大文字小文字を区別しない部分一致）
+    whereClauses.push(`title ILIKE $${paramIndex++}`);
+    values.push(`%${search.trim()}%`);
+  }
+  const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
   try {
-    // 2. completedが指定されていなければ絞り込みなしで全件取得する
-    if (completed === undefined) {
-      const result = await pool.query(
-        'SELECT id, title, completed, created_at, updated_at FROM todos ORDER BY id'
-      );
-      return res.json(result.rows);
-    }
-
-    if (completed !== 'true' && completed !== 'false') {
-      return res.status(400).json({ error: 'completed は true または false で指定してください' });
-    }
-
-    // 3. completedが指定されていれば、真偽値に変換して絞り込んだ結果を取得する
+    // 3. 組み立てた条件で絞り込んだ結果を取得する（条件が無ければ全件取得と同じSQLになる）
     const result = await pool.query(
-      'SELECT id, title, completed, created_at, updated_at FROM todos WHERE completed = $1 ORDER BY id',
-      [completed === 'true']
+      `SELECT id, title, completed, created_at, updated_at FROM todos ${whereSql} ORDER BY id`,
+      values
     );
     res.json(result.rows);
   } catch (err) {
