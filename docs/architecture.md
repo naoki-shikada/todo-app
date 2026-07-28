@@ -38,7 +38,8 @@ my-cloud-project/
 │   ├── test-coverage.md         # カバレッジ計測と改善提案
 │   └── test-fix.md              # テスト失敗の自動修正
 ├── db/migrations/
-│   └── 001_create_todos.sql     # todosテーブルを作成するマイグレーションSQL
+│   ├── 001_create_todos.sql     # todosテーブルを作成するマイグレーションSQL
+│   └── 002_add_priority_to_todos.sql  # priority列を追加するマイグレーションSQL
 ├── scripts/
 │   ├── migrate.js               # db/migrations配下のSQLを番号順に実行するスクリプト
 │   └── check-db.js              # DBへの接続確認とtodosテーブルの状態（件数など）を表示するスクリプト
@@ -95,23 +96,26 @@ sequenceDiagram
 
 | メソッド | パス | リクエスト | レスポンス（成功時） | レスポンス（主な失敗時） |
 | --- | --- | --- | --- | --- |
-| GET | `/todos` | クエリ: `?completed=true\|false`（省略可） | `200` TODOの配列 | `400` completedの値が不正 |
+| GET | `/todos` | クエリ: `?completed=true\|false`・`?search=キーワード`・`?priority=1\|2\|3`（すべて省略可、組み合わせ可） | `200` TODOの配列 | `400` completed/priorityの値が不正 |
 | GET | `/todos/:id` | なし | `200` TODO1件のオブジェクト | `404` idが数値以外、または存在しない |
-| POST | `/todos` | `{ "title": string }` | `201` 作成されたTODOオブジェクト | `400` titleが空文字/255文字超過/型不正 |
-| PATCH | `/todos/:id` | `{ "title"?: string, "completed"?: boolean }`（どちらか一方または両方） | `200` 更新後のTODOオブジェクト | `400` 値が不正／`404` idが存在しない |
+| POST | `/todos` | `{ "title": string, "priority"?: 1\|2\|3 }` | `201` 作成されたTODOオブジェクト | `400` titleが空文字/255文字超過/型不正、priorityが1・2・3以外 |
+| PATCH | `/todos/:id` | `{ "title"?: string, "completed"?: boolean, "priority"?: 1\|2\|3 }`（いずれか1つ以上） | `200` 更新後のTODOオブジェクト | `400` 値が不正／`404` idが存在しない |
 | DELETE | `/todos/:id` | なし | `204` No Content（bodyなし） | `404` idが存在しない |
 
 共通仕様：
 - `title`は必須・空文字不可（前後の空白はtrim）・255文字以内
 - `completed`はboolean型のみ許可
+- `priority`は`1`（低）・`2`（中）・`3`（高）の整数のみ許可。POSTで省略時はDBの`DEFAULT`（`1`）が適用される
+- `search`はtitleへの部分一致（大文字小文字を区別しないあいまい検索）。空文字は絞り込みなし扱い、該当0件でも`200`+空配列を返す
 - `:id`は数値形式の文字列のみ許可（数値以外は404）
 - DB接続エラーなど予期しない例外は、全エンドポイントで`500`を返す
 
 ## 6. データベーススキーマ
 
-`db/migrations/001_create_todos.sql`で定義している`todos`テーブル。
+`db/migrations/001_create_todos.sql`でテーブルを作成し、`002_add_priority_to_todos.sql`で`priority`列を追加している。マイグレーション適用後の`todos`テーブルの最終的な構造は以下の通り。
 
 ```sql
+-- 001_create_todos.sql
 CREATE TABLE IF NOT EXISTS todos (
   id BIGSERIAL PRIMARY KEY,
   title TEXT NOT NULL,
@@ -119,6 +123,9 @@ CREATE TABLE IF NOT EXISTS todos (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 002_add_priority_to_todos.sql
+ALTER TABLE todos ADD COLUMN priority INTEGER NOT NULL DEFAULT 1;
 ```
 
 | カラム名 | 型 | 意味 |
@@ -126,6 +133,7 @@ CREATE TABLE IF NOT EXISTS todos (
 | `id` | BIGSERIAL PRIMARY KEY | 自動採番される、他と重複しない一意の識別子。1件ずつを区別するために使う（`WHERE id = $1`等） |
 | `title` | TEXT NOT NULL | TODOのタイトル。空（NULL）での保存を許さない |
 | `completed` | BOOLEAN NOT NULL DEFAULT false | 完了/未完了の状態。値を指定しなければ自動で`false`（未完了）になる |
+| `priority` | INTEGER NOT NULL DEFAULT 1 | 優先度（`1`=低・`2`=中・`3`=高）。DB上は整数なら何でも保存できるが、アプリ側（`validatePriority`）で1・2・3以外を弾いている。値を指定しなければ自動で`1`になる |
 | `created_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | 行が作成された日時。以降変更されない |
 | `updated_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | 最後に更新された日時。`PATCH`実行のたびに`now()`で上書きされる |
 

@@ -16,6 +16,16 @@ function validateTitle(title) {
   }
   return { value: trimmed };
 }
+
+const VALID_PRIORITIES = [1, 2, 3];
+
+// priorityのバリデーション（1・2・3の整数のみ許可）
+function validatePriority(priority) {
+  if (typeof priority !== 'number' || !VALID_PRIORITIES.includes(priority)) {
+    return { error: 'priority は 1, 2, 3 のいずれかで指定してください' };
+  }
+  return { value: priority };
+}
 //追記testは文字列が数字で構成されている
 //Numberは数値として使える形に変換するためのもの。可読性を上げている。
 // :id が数値形式かどうかをチェックする
@@ -26,13 +36,16 @@ function parseId(rawId) {
   return Number(rawId);
 }
 
-// TODO一覧を取得（?completed=true|false で絞り込み、?search=キーワード であいまい検索が可能。組み合わせ可）
+// TODO一覧を取得（?completed=true|false・?search=キーワード・?priority=1|2|3 で絞り込み可能。組み合わせ可）
 router.get('/', async (req, res) => {
-  // 1. クエリパラメータからcompletedとsearchを受け取る
-  const { completed, search } = req.query;
+  // 1. クエリパラメータからcompleted・search・priorityを受け取る
+  const { completed, search, priority } = req.query;
 
   if (completed !== undefined && completed !== 'true' && completed !== 'false') {
     return res.status(400).json({ error: 'completed は true または false で指定してください' });
+  }
+  if (priority !== undefined && !['1', '2', '3'].includes(priority)) {
+    return res.status(400).json({ error: 'priority は 1, 2, 3 のいずれかで指定してください' });
   }
 
   // 2. 指定された条件だけをWHERE句に組み立てる（パラメータ化クエリでSQLインジェクションを防ぐ）
@@ -49,12 +62,16 @@ router.get('/', async (req, res) => {
     whereClauses.push(`title ILIKE $${paramIndex++}`);
     values.push(`%${search.trim()}%`);
   }
+  if (priority !== undefined) {
+    whereClauses.push(`priority = $${paramIndex++}`);
+    values.push(Number(priority));
+  }
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
   try {
     // 3. 組み立てた条件で絞り込んだ結果を取得する（条件が無ければ全件取得と同じSQLになる）
     const result = await pool.query(
-      `SELECT id, title, completed, created_at, updated_at FROM todos ${whereSql} ORDER BY id`,
+      `SELECT id, title, completed, priority, created_at, updated_at FROM todos ${whereSql} ORDER BY id`,
       values
     );
     res.json(result.rows);
@@ -74,7 +91,7 @@ router.get('/:id', async (req, res) => {
   try {
     // $1にはidの値だけが入り、SQLの構造自体は書き換えられない（パラメータ化クエリでSQLインジェクションを防ぐ）
     const result = await pool.query(
-      'SELECT id, title, completed, created_at, updated_at FROM todos WHERE id = $1',
+      'SELECT id, title, completed, priority, created_at, updated_at FROM todos WHERE id = $1',
       [id]
     );
     if (result.rowCount === 0) {
@@ -89,19 +106,32 @@ router.get('/:id', async (req, res) => {
 
 // TODOを新規作成
 router.post('/', async (req, res) => {
-  // 1. リクエストボディからtitleを受け取る
-  const { title } = req.body;
+  // 1. リクエストボディからtitleとpriorityを受け取る
+  const { title, priority } = req.body;
   // 2. titleが正しい値か判別する（空文字・文字数超過などを弾く）
-  const validated = validateTitle(title);
-  if (validated.error) {
-    return res.status(400).json({ error: validated.error });
+  const validatedTitle = validateTitle(title);
+  if (validatedTitle.error) {
+    return res.status(400).json({ error: validatedTitle.error });
   }
 
+  // 3. priorityが送られてきていれば判別する（未指定ならDBのDEFAULTに任せる）
+  const columns = ['title'];
+  const values = [validatedTitle.value];
+  if (priority !== undefined) {
+    const validatedPriority = validatePriority(priority);
+    if (validatedPriority.error) {
+      return res.status(400).json({ error: validatedPriority.error });
+    }
+    columns.push('priority');
+    values.push(validatedPriority.value);
+  }
+  const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
+
   try {
-    // 3. 2を通過した場合のみDBに新規登録する
+    // 4. 組み立てたカラムだけをDBに新規登録する
     const result = await pool.query(
-      'INSERT INTO todos (title) VALUES ($1) RETURNING id, title, completed, created_at, updated_at',
-      [validated.value]
+      `INSERT INTO todos (${columns.join(', ')}) VALUES (${placeholders}) RETURNING id, title, completed, priority, created_at, updated_at`,
+      values
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -118,7 +148,7 @@ router.patch('/:id', async (req, res) => {
     return res.status(404).json({ error: 'TODOが見つかりません' });
   }
 
-  const { title, completed } = req.body;
+  const { title, completed, priority } = req.body;
 
   // 2. 送られてきた項目だけをチェックする（送られていない項目はチェックをスキップ）
   if (title !== undefined) {
@@ -129,6 +159,12 @@ router.patch('/:id', async (req, res) => {
   }
   if (completed !== undefined && typeof completed !== 'boolean') {
     return res.status(400).json({ error: 'completed は真偽値で指定してください' });
+  }
+  if (priority !== undefined) {
+    const validatedPriority = validatePriority(priority);
+    if (validatedPriority.error) {
+      return res.status(400).json({ error: validatedPriority.error });
+    }
   }
 
   // 3. 指定されたフィールドのみを更新するSET句を組み立てる（パラメータ化クエリでSQLインジェクションを防ぐ）
@@ -144,12 +180,16 @@ router.patch('/:id', async (req, res) => {
     setClauses.push(`completed = $${paramIndex++}`);
     values.push(completed);
   }
+  if (priority !== undefined) {
+    setClauses.push(`priority = $${paramIndex++}`);
+    values.push(priority);
+  }
   setClauses.push('updated_at = now()');
   values.push(id);
 
   try {
     const result = await pool.query(
-      `UPDATE todos SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING id, title, completed, created_at, updated_at`,
+      `UPDATE todos SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING id, title, completed, priority, created_at, updated_at`,
       values
     );
 

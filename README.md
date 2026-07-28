@@ -44,13 +44,15 @@ npm start
 
 | メソッド | パス | 説明 | リクエストボディ例 |
 | --- | --- | --- | --- |
-| GET | /todos | TODO一覧を取得 | - |
-| POST | /todos | TODOを新規作成 | `{ "title": "牛乳を買う" }` |
-| PATCH | /todos/:id | TODOを更新（完了切替など） | `{ "completed": true }` |
+| GET | /todos | TODO一覧を取得（`?completed=true\|false`・`?search=キーワード`・`?priority=1\|2\|3`で絞り込み可、組み合わせ可） | - |
+| POST | /todos | TODOを新規作成 | `{ "title": "牛乳を買う", "priority": 2 }` |
+| PATCH | /todos/:id | TODOを更新（完了切替・優先度変更など） | `{ "completed": true }` |
 | DELETE | /todos/:id | TODOを削除 | - |
 
 - `title` は必須・空文字不可（前後の空白はtrim）・255文字以内
 - `completed` はboolean型のみ許可
+- `priority` は`1`（低）・`2`（中）・`3`（高）の整数のみ許可。省略時は`1`がデフォルトで設定される
+- `search` はtitleに対する部分一致（大文字小文字を区別しないあいまい検索）。空文字は絞り込みなし扱い
 - `:id` は数値形式のみ許可（数値以外は404）
 - 存在しないidへのPATCH/DELETEは404を返す
 

@@ -98,12 +98,12 @@ describe('public/index.html のフロントエンドロジック', () => {
       .dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Assert（検証）：POST /todos がタイトル付きで呼ばれていること
+    // Assert（検証）：POST /todos がタイトル・優先度（未選択時は初期値の1）付きで呼ばれていること
     expect(fetchMock).toHaveBeenCalledWith(
       '/todos',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ title: '新しいタスク' }),
+        body: JSON.stringify({ title: '新しいタスク', priority: 1 }),
       })
     );
   });

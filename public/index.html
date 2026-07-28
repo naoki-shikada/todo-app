@@ -39,6 +39,13 @@
     padding: 8px 16px;
     cursor: pointer;
   }
+  select {
+    padding: 8px;
+    font-size: 14px;
+  }
+  #todo-list li select {
+    flex-shrink: 0;
+  }
   #todo-list {
     list-style: none;
     padding: 0;
@@ -71,12 +78,23 @@
 <!-- TODO検索 -->
 <form id="search-form">
   <input type="text" id="search-input" placeholder="検索（あいまい一致）">
+  <select id="priority-filter">
+    <option value="">優先度：すべて</option>
+    <option value="1">優先度：低</option>
+    <option value="2">優先度：中</option>
+    <option value="3">優先度：高</option>
+  </select>
   <button type="submit">検索</button>
 </form>
 
 <!-- TODO追加フォーム -->
 <form id="todo-form">
   <input type="text" id="todo-title" placeholder="やることを入力" required>
+  <select id="todo-priority">
+    <option value="1">低</option>
+    <option value="2">中</option>
+    <option value="3">高</option>
+  </select>
   <button type="submit">追加</button>
 </form>
 
@@ -86,14 +104,20 @@
 <script>
   const form = document.getElementById('todo-form');
   const titleInput = document.getElementById('todo-title');
+  const todoPriorityInput = document.getElementById('todo-priority');
   const list = document.getElementById('todo-list');
   const searchForm = document.getElementById('search-form');
   const searchInput = document.getElementById('search-input');
+  const priorityFilter = document.getElementById('priority-filter');
 
-  // サーバーからTODO一覧を取得して画面に描画する（検索欄に入力があれば絞り込む）
+  // サーバーからTODO一覧を取得して画面に描画する（検索欄・優先度フィルタがあれば絞り込む）
   async function fetchTodos() {
     const search = searchInput.value.trim();
-    const query = search ? `?search=${encodeURIComponent(search)}` : '';
+    const priority = priorityFilter.value;
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (priority) params.set('priority', priority);
+    const query = params.toString() ? `?${params.toString()}` : '';
     const res = await fetch(`/todos${query}`);
     const todos = await res.json();
     renderTodos(todos);
@@ -114,21 +138,34 @@
       const span = document.createElement('span');
       span.textContent = todo.title;
 
+      const priorityLabels = { 1: '低', 2: '中', 3: '高' };
+      const prioritySelect = document.createElement('select');
+      [1, 2, 3].forEach((value) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = priorityLabels[value];
+        if (todo.priority === value) option.selected = true;
+        prioritySelect.appendChild(option);
+      });
+      prioritySelect.addEventListener('change', () => {
+        updatePriority(todo.id, Number(prioritySelect.value));
+      });
+
       const deleteButton = document.createElement('button');
       deleteButton.textContent = '削除';
       deleteButton.addEventListener('click', () => deleteTodo(todo.id));
 
-      li.append(checkbox, span, deleteButton);
+      li.append(checkbox, span, prioritySelect, deleteButton);
       list.appendChild(li);
     });
   }
 
-  // 新しいTODOを追加する（新しく設定したい値=titleがあるのでbodyが必要）
-  async function addTodo(title) {
+  // 新しいTODOを追加する（新しく設定したい値=title・priorityがあるのでbodyが必要）
+  async function addTodo(title, priority) {
     await fetch('/todos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, priority }),
     });
     await fetchTodos();
   }
@@ -143,6 +180,16 @@
     await fetchTodos();
   }
 
+  // 優先度を変更する（新しく設定したい値=priorityがあるのでbodyが必要）
+  async function updatePriority(id, priority) {
+    await fetch(`/todos/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priority }),
+    });
+    await fetchTodos();
+  }
+
   // TODOを削除する（新しく設定したい値が無いのでbodyは不要。対象はURLのidだけで指定できる）
   async function deleteTodo(id) {
     await fetch(`/todos/${id}`, { method: 'DELETE' });
@@ -153,11 +200,11 @@
     event.preventDefault();
     const title = titleInput.value.trim();
     if (!title) return;
-    addTodo(title);
+    addTodo(title, Number(todoPriorityInput.value));
     titleInput.value = '';
   });
 
-  // 検索ボタン（またはEnterキーでのフォーム送信）を押したときだけ検索を実行する
+  // 検索ボタン（またはEnterキーでのフォーム送信）を押したときだけ検索・優先度フィルタを実行する
   searchForm.addEventListener('submit', (event) => {
     event.preventDefault();
     fetchTodos();

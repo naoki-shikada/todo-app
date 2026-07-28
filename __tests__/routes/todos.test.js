@@ -198,6 +198,59 @@ describe('GET /todos', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
+
+  test('正常系：?priority=1 を指定すると該当する優先度のみで絞り込まれる', async () => {
+    // Arrange（準備）
+    const app = createApp();
+    const rows = [
+      { id: 1, title: '牛乳を買う', completed: false, priority: 1, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' },
+    ];
+    pool.query.mockResolvedValueOnce({ rows, rowCount: 1 });
+
+    // Act（実行）
+    const res = await request(app).get('/todos').query({ priority: '1' });
+
+    // Assert（検証）
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(rows);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain('priority = $1');
+    expect(params).toEqual([1]);
+  });
+
+  test('異常系：priorityに1,2,3以外の値を指定すると400が返り、DBは呼ばれない', async () => {
+    // Arrange（準備）
+    const app = createApp();
+
+    // Act（実行）
+    const res = await request(app).get('/todos').query({ priority: '4' });
+
+    // Assert（検証）
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'priority は 1, 2, 3 のいずれかで指定してください' });
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+
+  test('正常系：completed・search・priorityを同時に指定すると全ての条件で絞り込まれる', async () => {
+    // Arrange（準備）
+    const app = createApp();
+    const rows = [
+      { id: 2, title: 'レポートを書く', completed: true, priority: 3, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' },
+    ];
+    pool.query.mockResolvedValueOnce({ rows, rowCount: 1 });
+
+    // Act（実行）
+    const res = await request(app).get('/todos').query({ completed: 'true', search: 'レポート', priority: '3' });
+
+    // Assert（検証）
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(rows);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain('completed = $1');
+    expect(sql).toContain('title ILIKE $2');
+    expect(sql).toContain('priority = $3');
+    expect(params).toEqual([true, '%レポート%', 3]);
+  });
 });
 
 describe('GET /todos/:id', () => {
@@ -389,6 +442,54 @@ describe('POST /todos', () => {
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: 'サーバーエラーが発生しました' });
   });
+
+  test('正常系：priorityを指定するとその値でTODOが作成される', async () => {
+    // Arrange（準備）
+    const app = createApp();
+    const created = { id: 1, title: '牛乳を買う', completed: false, priority: 3, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' };
+    pool.query.mockResolvedValueOnce({ rows: [created], rowCount: 1 });
+
+    // Act（実行）
+    const res = await request(app).post('/todos').send({ title: '牛乳を買う', priority: 3 });
+
+    // Assert（検証）
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual(created);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain('priority');
+    expect(params).toEqual(['牛乳を買う', 3]);
+  });
+
+  test('正常系：priorityを指定しない場合はSQLにpriority列を含めず、DBのDEFAULTに任せる', async () => {
+    // Arrange（準備）
+    const app = createApp();
+    pool.query.mockResolvedValueOnce({
+      rows: [{ id: 1, title: '牛乳を買う', completed: false, priority: 1 }],
+      rowCount: 1,
+    });
+
+    // Act（実行）
+    await request(app).post('/todos').send({ title: '牛乳を買う' });
+
+    // Assert（検証）：INSERTの列指定部分（RETURNING句より前）にpriorityが含まれていないこと
+    const [sql, params] = pool.query.mock.calls[0];
+    const insertColumns = sql.split('RETURNING')[0];
+    expect(insertColumns).not.toContain('priority');
+    expect(params).toEqual(['牛乳を買う']);
+  });
+
+  test.each([0, 4, '高', 1.5])('異常系：priorityに%pを指定すると400が返り、DBは呼ばれない', async (invalidPriority) => {
+    // Arrange（準備）
+    const app = createApp();
+
+    // Act（実行）
+    const res = await request(app).post('/todos').send({ title: '牛乳を買う', priority: invalidPriority });
+
+    // Assert（検証）
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'priority は 1, 2, 3 のいずれかで指定してください' });
+    expect(pool.query).not.toHaveBeenCalled();
+  });
 });
 
 describe('PATCH /todos/:id', () => {
@@ -510,6 +611,37 @@ describe('PATCH /todos/:id', () => {
     // Assert（検証）
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: 'サーバーエラーが発生しました' });
+  });
+
+  test('正常系：priorityのみ更新できる', async () => {
+    // Arrange（準備）
+    const app = createApp();
+    pool.query.mockResolvedValueOnce({
+      rows: [{ id: 1, title: '牛乳を買う', completed: false, priority: 2 }],
+      rowCount: 1,
+    });
+
+    // Act（実行）
+    const res = await request(app).patch('/todos/1').send({ priority: 2 });
+
+    // Assert（検証）
+    expect(res.status).toBe(200);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain('priority = $1');
+    expect(params).toEqual([2, 1]);
+  });
+
+  test.each([0, 4, '高', 1.5])('異常系：priorityに%pを指定すると400が返り、DBは呼ばれない', async (invalidPriority) => {
+    // Arrange（準備）
+    const app = createApp();
+
+    // Act（実行）
+    const res = await request(app).patch('/todos/1').send({ priority: invalidPriority });
+
+    // Assert（検証）
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'priority は 1, 2, 3 のいずれかで指定してください' });
+    expect(pool.query).not.toHaveBeenCalled();
   });
 });
 
